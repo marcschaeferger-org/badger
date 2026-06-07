@@ -1,0 +1,20 @@
+version = 1
+
+test_patterns = [
+  "**/*_test.go"
+]
+
+[[analyzers]]
+name = "go"
+enabled = true
+
+  [analyzers.meta]
+  import_root = "github.com/marcschaeferger-org/pangolin-kube-controller"
+
+[[analyzers]]
+name = "test-coverage"
+enabled = true
+
+[[code_formatters]]
+name = "gofmt"
+enabled = true
