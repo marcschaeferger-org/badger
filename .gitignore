@@ -5,6 +5,8 @@
 vendor/*
 bin/*
 dist/*
+# Yaegi / Traefik local-plugin runtime work directory.
+plugins-local/*
 
 # Go coverage directories (GOCOVERDIR)
 .cover/

@@ -1,7 +1,7 @@
 YAEGI_VERSION ?= v0.16.1
 GOVULNCHECK_VERSION ?= v1.3.0
 
-.PHONY: fmt tidy vet lint test vulncheck yaegi-test ci
+.PHONY: fmt tidy vet lint test vulncheck vendor yaegi-test ci ci-full clean
 
 fmt:
 	gofmt -w .
@@ -12,6 +12,7 @@ tidy:
 vet:
 	go vet ./...
 
+# Lint using golangci-lint (CI-locked version: $(GOLANGCI_LINT_VERSION))
 lint:
 	golangci-lint run
 
@@ -22,12 +23,17 @@ vulncheck:
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	govulncheck ./...
 
-# Traefik interprets the plugin with Yaegi at runtime. Yaegi's "test" command
-# takes a single package, so this targets the root plugin package (".").
-yaegi-test:
+vendor:
+	go mod vendor
+
+# Yaegi compatibility check. Vendors dependencies first so Yaegi can resolve
+# local sub-packages (e.g. github.com/fosrl/badger/ips) without needing a
+# plugins-local copy layout. Must be run from a GOPATH-compatible directory
+# (go/src/github.com/fosrl/badger) for local sub-package resolution.
+yaegi-test: vendor
 	go run github.com/traefik/yaegi/cmd/yaegi@$(YAEGI_VERSION) test -v .
 
-# Reproduce the CI checks locally.
+# Reproduce the CI checks locally (excluding yaegi and lint).
 ci:
 	test -z "$$(gofmt -l .)"
 	go mod tidy
@@ -36,4 +42,11 @@ ci:
 	go test -race -cover ./...
 	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 	govulncheck ./...
-	go run github.com/traefik/yaegi/cmd/yaegi@$(YAEGI_VERSION) test -v .
+
+# Full CI including lint and yaegi compatibility check.
+ci-full: ci
+	$(MAKE) lint
+	$(MAKE) yaegi-test
+
+clean:
+	rm -rf vendor
