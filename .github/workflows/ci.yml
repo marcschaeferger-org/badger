@@ -78,7 +78,12 @@ jobs:
         # same way Traefik would. No vendoring is required because Badger has
         # no external dependencies. Yaegi's "test" takes a single package
         # (it does not understand the ./... wildcard).
-        run: go run github.com/traefik/yaegi/cmd/yaegi@v0.16.1 test -v .
+        run: |
+          export GOPATH="$(mktemp -d)"
+          mkdir -p "$GOPATH/src/github.com/fosrl"
+          ln -s "$PWD" "$GOPATH/src/github.com/fosrl/badger"
+          cd "$GOPATH/src/github.com/fosrl/badger"
+          go run github.com/traefik/yaegi/cmd/yaegi@v0.16.1 test -v .
 
       - name: Validate Traefik plugin metadata
         run: |
