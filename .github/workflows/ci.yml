@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Go tests and checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          # Follow the Go version declared in the repository.
+          go-version-file: .go-version
+          cache: true
+
+      - name: Show Go version
+        run: go version
+
+      - name: Verify formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-clean:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Verify module files are tidy
+        run: |
+          go mod tidy
+          # Badger currently has no external dependencies, so go.sum is not
+          # generated; this guards against go.mod (and any future go.sum) drift.
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9.2.1
+        with:
+          version: v2.12.2
+        continue-on-error: true
+
+      - name: Run tests
+        run: go test -race -cover ./...
+
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
+
+      - name: Run govulncheck
+        run: govulncheck ./...
+
+      - name: Yaegi compatibility check
+        # Traefik interprets the plugin with Yaegi at runtime, so a normal
+        # "go test" is not sufficient. This interprets the plugin package the
+        # same way Traefik would. No vendoring is required because Badger has
+        # no external dependencies. Yaegi's "test" takes a single package
+        # (it does not understand the ./... wildcard).
+        run: |
+          export GOPATH="$(mktemp -d)"
+          mkdir -p "$GOPATH/src/github.com/fosrl"
+          ln -s "$PWD" "$GOPATH/src/github.com/fosrl/badger"
+          cd "$GOPATH/src/github.com/fosrl/badger"
+          go run github.com/traefik/yaegi/cmd/yaegi@v0.16.1 test -v .
+
+      - name: Validate Traefik plugin metadata
+        run: |
+          test -f .traefik.yml
+          grep -q '^displayName:' .traefik.yml
+          grep -q '^type:' .traefik.yml
+          grep -q '^import:' .traefik.yml
+          grep -q '^testData:' .traefik.yml
+          grep -q 'github.com/fosrl/badger' .traefik.yml

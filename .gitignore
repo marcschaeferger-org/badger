@@ -1,2 +1,20 @@
-go.sum
 .DS_Store
+.idea
+*.iml
+
+vendor/*
+bin/*
+dist/*
+
+# Go coverage directories (GOCOVERDIR)
+.cover/
+coverage.out
+coverage.txt
+*.cover.out
+*_coverage.out
+unit.out
+int.out
+nohup.out
+
+*.test
+*.exe
