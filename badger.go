@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/fosrl/badger/ips"
 	"github.com/fosrl/badger/version"
@@ -59,6 +62,7 @@ type Badger struct {
 	disableForwardAuth          bool
 	trustIP                     []*net.IPNet
 	customIPHeader              string
+	httpClient                  *http.Client
 }
 
 type VerifyBody struct {
@@ -75,20 +79,22 @@ type VerifyBody struct {
 	BadgerVersion      string            `json:"badgerVersion,omitempty"`
 }
 
+type VerifyResponseData struct {
+	HeaderAuthChallenged bool              `json:"headerAuthChallenged"`
+	Valid                bool              `json:"valid"`
+	RedirectURL          *string           `json:"redirectUrl"`
+	UserID               *string           `json:"userId,omitempty"`
+	DontStripSession     bool              `json:"dontStripSession,omitempty"`
+	Username             *string           `json:"username,omitempty"`
+	Email                *string           `json:"email,omitempty"`
+	Name                 *string           `json:"name,omitempty"`
+	Role                 *string           `json:"role,omitempty"`
+	ResponseHeaders      map[string]string `json:"responseHeaders,omitempty"`
+	PangolinVersion      *string           `json:"pangolinVersion,omitempty"`
+}
+
 type VerifyResponse struct {
-	Data struct {
-		HeaderAuthChallenged bool              `json:"headerAuthChallenged"`
-		Valid                bool              `json:"valid"`
-		RedirectURL          *string           `json:"redirectUrl"`
-		UserID               *string           `json:"userId,omitempty"`
-		DontStripSession     bool              `json:"dontStripSession,omitempty"`
-		Username             *string           `json:"username,omitempty"`
-		Email                *string           `json:"email,omitempty"`
-		Name                 *string           `json:"name,omitempty"`
-		Role                 *string           `json:"role,omitempty"`
-		ResponseHeaders      map[string]string `json:"responseHeaders,omitempty"`
-		PangolinVersion      *string           `json:"pangolinVersion,omitempty"`
-	} `json:"data"`
+	Data VerifyResponseData `json:"data"`
 }
 
 type ExchangeSessionBody struct {
@@ -125,6 +131,7 @@ func New(_ context.Context, next http.Handler, config *Config, name string) (htt
 		accessTokenHeader:           config.AccessTokenHeader,
 		disableForwardAuth:          config.DisableForwardAuth,
 		customIPHeader:              config.CustomIPHeader,
+		httpClient:                  &http.Client{Timeout: 10 * time.Second},
 	}
 
 	if err := badger.parseTrustedIPs(config.TrustIP, config.DisableDefaultCFIPs); err != nil {
@@ -209,7 +216,7 @@ func (p *Badger) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	}
 	httpReq.Header.Set(headerContentType, "application/json")
 
-	resp, err := http.DefaultClient.Do(httpReq) //nolint:gosec // G704: URL is constructed from configured apiBaseURL
+	resp, err := p.httpClient.Do(httpReq) //nolint:gosec // G704: URL is constructed from configured apiBaseURL
 	if err != nil {
 		http.Error(rw, errInternalServer, http.StatusInternalServerError)
 		return
@@ -258,7 +265,7 @@ func (p *Badger) handleSessionExchange(rw http.ResponseWriter, req *http.Request
 	}
 	httpReq.Header.Set(headerContentType, "application/json")
 
-	resp, err := http.DefaultClient.Do(httpReq) //nolint:gosec // G704: URL is constructed from configured apiBaseURL
+	resp, err := p.httpClient.Do(httpReq) //nolint:gosec // G704: URL is constructed from configured apiBaseURL
 	if err != nil {
 		http.Error(rw, errInternalServer, http.StatusInternalServerError)
 		return true
@@ -293,8 +300,8 @@ func (p *Badger) handleSessionExchange(rw http.ResponseWriter, req *http.Request
 		}
 	}
 
-	fmt.Println("Got exchange token, redirecting to", originalRequestURL)
-	http.Redirect(rw, req, originalRequestURL, http.StatusFound) //nolint:gosec // G710: redirect URL is constructed from the original request
+	log.Printf("badger: got exchange token, redirecting to %s", originalRequestURL) //nolint:gosec // G706: originalRequestURL is derived from the incoming request
+	http.Redirect(rw, req, originalRequestURL, http.StatusFound)                    //nolint:gosec // G710: redirect URL is constructed from the original request
 	return true
 }
 
@@ -324,10 +331,11 @@ func buildVerifyBody(req *http.Request, cookies map[string]string, originalReque
 		}
 	}
 
+	scheme := getScheme(req)
 	return VerifyBody{
 		Sessions:           cookies,
 		OriginalRequestURL: originalRequestURL,
-		RequestScheme:      &req.URL.Scheme,
+		RequestScheme:      &scheme,
 		RequestHost:        &req.Host,
 		RequestPath:        &req.URL.Path,
 		RequestMethod:      &req.Method,
@@ -350,7 +358,7 @@ func (p *Badger) handleVerifyResponse(rw http.ResponseWriter, req *http.Request,
 	}
 
 	if result.Data.RedirectURL != nil && *result.Data.RedirectURL != "" {
-		fmt.Println("Badger: Redirecting to", *result.Data.RedirectURL)
+		log.Printf("badger: redirecting to %s", *result.Data.RedirectURL)  //nolint:gosec // G706: redirectURL comes from trusted auth server
 		http.Redirect(rw, req, *result.Data.RedirectURL, http.StatusFound) //nolint:gosec // G710: redirect URL comes from the auth server
 		return
 	}
@@ -362,7 +370,7 @@ func (p *Badger) handleVerifyResponse(rw http.ResponseWriter, req *http.Request,
 			p.stripSessionCookies(req)
 			p.stripAccessTokenHeaders(req)
 		}
-		fmt.Println("Badger: Valid session")
+		log.Printf("badger: valid session")
 		p.next.ServeHTTP(rw, req)
 		return
 	}
@@ -391,7 +399,7 @@ func applyResponseHeaders(rw http.ResponseWriter, headers map[string]string) {
 
 // handleHeaderAuthChallenge responds with a 401 and optional redirect page for header-based auth.
 func handleHeaderAuthChallenge(rw http.ResponseWriter, redirectURL *string) {
-	fmt.Println("Badger: challenging client for header authentication")
+	log.Printf("badger: challenging client for header authentication")
 	rw.Header().Add("WWW-Authenticate", "Basic realm=\"pangolin\"")
 
 	if redirectURL != nil && *redirectURL != "" {
@@ -404,19 +412,7 @@ func handleHeaderAuthChallenge(rw http.ResponseWriter, redirectURL *string) {
 }
 
 // setUserHeaders sets the remote-user headers from the verification result.
-func setUserHeaders(req *http.Request, data *struct {
-	HeaderAuthChallenged bool              `json:"headerAuthChallenged"`
-	Valid                bool              `json:"valid"`
-	RedirectURL          *string           `json:"redirectUrl"`
-	UserID               *string           `json:"userId,omitempty"`
-	DontStripSession     bool              `json:"dontStripSession,omitempty"`
-	Username             *string           `json:"username,omitempty"`
-	Email                *string           `json:"email,omitempty"`
-	Name                 *string           `json:"name,omitempty"`
-	Role                 *string           `json:"role,omitempty"`
-	ResponseHeaders      map[string]string `json:"responseHeaders,omitempty"`
-	PangolinVersion      *string           `json:"pangolinVersion,omitempty"`
-}) {
+func setUserHeaders(req *http.Request, data *VerifyResponseData) {
 	if data.UserID != nil {
 		req.Header.Add(headerRemoteUserID, *data.UserID)
 	}
@@ -458,6 +454,7 @@ func getScheme(req *http.Request) string {
 }
 
 func renderRedirectPage(redirectURL string) string {
+	escaped := html.EscapeString(redirectURL)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -498,7 +495,7 @@ func renderRedirectPage(redirectURL string) string {
         window.location.href = "%s";
     </script>
 </body>
-</html>`, redirectURL, redirectURL)
+</html>`, escaped, escaped)
 }
 
 func (p *Badger) getRealIP(req *http.Request) string {
@@ -541,7 +538,6 @@ func (p *Badger) stripSessionParam(req *http.Request) {
 	}
 	if modified {
 		req.URL.RawQuery = query.Encode()
-		req.RequestURI = req.URL.RequestURI()
 	}
 }
 
