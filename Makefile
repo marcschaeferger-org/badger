@@ -12,7 +12,6 @@ tidy:
 vet:
 	go vet ./...
 
-# Lint using golangci-lint (CI-locked version: $(GOLANGCI_LINT_VERSION))
 lint:
 	golangci-lint run
 

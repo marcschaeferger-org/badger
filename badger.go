@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"html/template"
 	"log"
 	"net"
 	"net/http"
@@ -454,7 +455,8 @@ func getScheme(req *http.Request) string {
 }
 
 func renderRedirectPage(redirectURL string) string {
-	escaped := html.EscapeString(redirectURL)
+	htmlEscaped := html.EscapeString(redirectURL)
+	jsEscaped := template.JSEscapeString(redirectURL)
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -495,7 +497,7 @@ func renderRedirectPage(redirectURL string) string {
         window.location.href = "%s";
     </script>
 </body>
-</html>`, escaped, escaped)
+</html>`, htmlEscaped, jsEscaped)
 }
 
 func (p *Badger) getRealIP(req *http.Request) string {
