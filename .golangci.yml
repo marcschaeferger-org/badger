@@ -139,6 +139,7 @@ linters:
           - funlen
           - goconst
           - dupl
+          - noctx
 
       # Cloudflare IP list is intentionally a large literal allowlist.
       - path: '^ips/ips\.go$'

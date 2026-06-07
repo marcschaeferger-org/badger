@@ -88,7 +88,7 @@ func TestServeHTTPDisableForwardAuthCallsNext(t *testing.T) {
 	h := newTestHandler(t, cfg, next)
 
 	rw := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
 	h.ServeHTTP(rw, req)
 
 	if !called {
@@ -107,7 +107,7 @@ func TestRealIPUntrustedUsesDirectIPAndStripsCFHeaders(t *testing.T) {
 	cfg := &badger.Config{DisableForwardAuth: true, DisableDefaultCFIPs: true}
 	h := newTestHandler(t, cfg, next)
 
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
 	req.RemoteAddr = "198.51.100.7:9999"
 	req.Header.Set("CF-Connecting-IP", "1.2.3.4")
 	h.ServeHTTP(httptest.NewRecorder(), req)
@@ -133,7 +133,7 @@ func TestRealIPTrustedProxyUsesCustomHeader(t *testing.T) {
 	}
 	h := newTestHandler(t, cfg, next)
 
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
 	req.RemoteAddr = "192.0.2.10:12345"
 	req.Header.Set("X-Custom-IP", "203.0.113.5")
 	h.ServeHTTP(httptest.NewRecorder(), req)
@@ -170,7 +170,7 @@ func TestStripSessionCookiesPreservesUnrelated(t *testing.T) {
 	}
 	h := newTestHandler(t, cfg, next)
 
-	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://example.com/", nil)
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
 	req.Header.Set("Cookie", "p_session_token=secret; other=keep")
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
