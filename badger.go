@@ -191,10 +191,10 @@ func (p *Badger) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	originalRequestURL := p.buildOriginalURL(req, queryValues)
+	originalRequestURL := buildOriginalURL(req, queryValues)
 	verifyURL := fmt.Sprintf("%s/badger/verify-session", p.apiBaseURL)
 
-	cookieData := p.buildVerifyBody(req, cookies, originalRequestURL, realIP, queryValues)
+	cookieData := buildVerifyBody(req, cookies, originalRequestURL, realIP, queryValues)
 
 	jsonData, err := json.Marshal(cookieData)
 	if err != nil {
@@ -299,7 +299,7 @@ func (p *Badger) handleSessionExchange(rw http.ResponseWriter, req *http.Request
 }
 
 // buildOriginalURL reconstructs the original request URL, stripping the session param.
-func (p *Badger) buildOriginalURL(req *http.Request, queryValues url.Values) string {
+func buildOriginalURL(req *http.Request, queryValues url.Values) string {
 	cleanedQuery := queryValues.Encode()
 	originalRequestURL := fmt.Sprintf("%s://%s%s", getScheme(req), req.Host, req.URL.Path)
 	if cleanedQuery != "" {
@@ -309,7 +309,7 @@ func (p *Badger) buildOriginalURL(req *http.Request, queryValues url.Values) str
 }
 
 // buildVerifyBody constructs the verification request payload.
-func (p *Badger) buildVerifyBody(req *http.Request, cookies map[string]string, originalRequestURL string, realIP string, queryValues url.Values) VerifyBody {
+func buildVerifyBody(req *http.Request, cookies map[string]string, originalRequestURL string, realIP string, queryValues url.Values) VerifyBody {
 	headers := make(map[string]string)
 	for name, values := range req.Header {
 		if len(values) > 0 {
@@ -341,11 +341,11 @@ func (p *Badger) buildVerifyBody(req *http.Request, cookies map[string]string, o
 
 // handleVerifyResponse processes the verification response and writes the appropriate result.
 func (p *Badger) handleVerifyResponse(rw http.ResponseWriter, req *http.Request, result VerifyResponse) {
-	p.clearRemoteHeaders(req)
-	p.applyResponseHeaders(rw, result.Data.ResponseHeaders)
+	clearRemoteHeaders(req)
+	applyResponseHeaders(rw, result.Data.ResponseHeaders)
 
 	if result.Data.HeaderAuthChallenged {
-		p.handleHeaderAuthChallenge(rw, result.Data.RedirectURL)
+		handleHeaderAuthChallenge(rw, result.Data.RedirectURL)
 		return
 	}
 
@@ -356,7 +356,7 @@ func (p *Badger) handleVerifyResponse(rw http.ResponseWriter, req *http.Request,
 	}
 
 	if result.Data.Valid {
-		p.setUserHeaders(req, &result.Data)
+		setUserHeaders(req, &result.Data)
 		if !result.Data.DontStripSession {
 			p.stripSessionParam(req)
 			p.stripSessionCookies(req)
@@ -371,7 +371,7 @@ func (p *Badger) handleVerifyResponse(rw http.ResponseWriter, req *http.Request,
 }
 
 // clearRemoteHeaders removes all remote-user headers from the request.
-func (p *Badger) clearRemoteHeaders(req *http.Request) {
+func clearRemoteHeaders(req *http.Request) {
 	req.Header.Del(headerRemoteUser)
 	req.Header.Del(headerRemoteEmail)
 	req.Header.Del(headerRemoteName)
@@ -380,7 +380,7 @@ func (p *Badger) clearRemoteHeaders(req *http.Request) {
 }
 
 // applyResponseHeaders copies response headers from the verification result to the response writer.
-func (p *Badger) applyResponseHeaders(rw http.ResponseWriter, headers map[string]string) {
+func applyResponseHeaders(rw http.ResponseWriter, headers map[string]string) {
 	if headers == nil {
 		return
 	}
@@ -390,7 +390,7 @@ func (p *Badger) applyResponseHeaders(rw http.ResponseWriter, headers map[string
 }
 
 // handleHeaderAuthChallenge responds with a 401 and optional redirect page for header-based auth.
-func (p *Badger) handleHeaderAuthChallenge(rw http.ResponseWriter, redirectURL *string) {
+func handleHeaderAuthChallenge(rw http.ResponseWriter, redirectURL *string) {
 	fmt.Println("Badger: challenging client for header authentication")
 	rw.Header().Add("WWW-Authenticate", "Basic realm=\"pangolin\"")
 
@@ -404,7 +404,7 @@ func (p *Badger) handleHeaderAuthChallenge(rw http.ResponseWriter, redirectURL *
 }
 
 // setUserHeaders sets the remote-user headers from the verification result.
-func (p *Badger) setUserHeaders(req *http.Request, data *struct {
+func setUserHeaders(req *http.Request, data *struct {
 	HeaderAuthChallenged bool              `json:"headerAuthChallenged"`
 	Valid                bool              `json:"valid"`
 	RedirectURL          *string           `json:"redirectUrl"`
